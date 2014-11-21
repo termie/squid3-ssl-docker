@@ -3,6 +3,9 @@
 set -e
 
 HOST=$(hostname -A | tr -d ' ')
+#echo $HOST
+
+free
 
 sed -i "s|<HOST>|${HOST}|g" /etc/squid3/openssl.cnf
 sed -i "s|<HOST>|${HOST}|g" /etc/squid3/squid.conf
@@ -17,11 +20,13 @@ chown -R proxy: /etc/squid3/certs
 
 cat "/etc/squid3/certs/${HOST}.crt"
 
-# /usr/sbin/squid3 -Nz
+# /usr/sbin/squid -Nz
 
 chown -R proxy: /var/cache/squid3
 chown -R proxy: /var/log/squid3
 
-/usr/sbin/squid3 -Nz
+/usr/sbin/squid -Nz
 
-exec /usr/sbin/squid3 -Nd2
+/usr/sbin/squid -d2
+
+tail -F /var/log/squid3/access.log /var/log/squid3/cache.log

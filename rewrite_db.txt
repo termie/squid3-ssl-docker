@@ -1,0 +1,1 @@
+^https:\/\/[^\.]+\.cloudfront\.net\/(.*)\?	https://cloudfront.net.squid.internal/$1
