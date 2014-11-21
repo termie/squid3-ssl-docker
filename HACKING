@@ -1,0 +1,93 @@
+Your cachebox probably needs its memory upped, I put it at 2GB, was getting fork errors trying to allocate memory otherwise
+
+::
+
+  core@core-01 ~ $ cat /etc/systemd/system/docker.service.d/http-proxy.conf
+  [Service]
+  Environment="HTTP_PROXY=http://172.17.8.100:3128"
+  Environment="HTTPS_PROXY=http://172.17.8.100:3128"
+
+
+On the cachebox::
+
+  vagrant@cachebox:~/squid3-ssl-docker$ sudo docker build -t termie/squid3-ssl .
+
+Which will take a while, then::
+
+  vagrant@cachebox:~/squid3-ssl-docker$ sudo docker run -h proxy.docker.dev -p 3128:3128 --name squid3 --rm -it termie/squid3-ssl
+
+Copy the CA key out of the docker container (as described in the readme), example (you'll have to do this every time you remake the container)::
+
+  -----BEGIN CERTIFICATE-----
+  MIICCjCCAXOgAwIBAgIJAP1vO0fu+rD1MA0GCSqGSIb3DQEBCwUAMDYxGTAXBgNV
+  BAoMEHByb3h5LmRvY2tlci5kZXYxGTAXBgNVBAMMEHByb3h5LmRvY2tlci5kZXYw
+  HhcNMTQxMTIxMTg0MTUzWhcNMTYxMTIwMTg0MTUzWjA2MRkwFwYDVQQKDBBwcm94
+  eS5kb2NrZXIuZGV2MRkwFwYDVQQDDBBwcm94eS5kb2NrZXIuZGV2MIGfMA0GCSqG
+  SIb3DQEBAQUAA4GNADCBiQKBgQC7jLafiBgVmIrFMkvbPyDRAsRMVhdXPUxuUOG8
+  aATJgSsh8iZcn6Mz0usgjk+1Yo2KRvlG/VtAftALBAdAVBKLskffz/kLOBlXufWq
+  slTZ7LYb1CYPzUOnSMUJdKp2p2VtPfqG8BZIlbbt1BKL7ab3abN29ZdZyCV5w2VR
+  gH9J7QIDAQABoyAwHjAPBgNVHRMBAf8EBTADAQH/MAsGA1UdDwQEAwIBBjANBgkq
+  hkiG9w0BAQsFAAOBgQCDl46GdrFeIE2K9gqIb7ynPBYcfmxUOFIDh/Wr8VdkeXgC
+  trHWw/dZcPgFVqVQW/LOAnbedLLCaU+UDzaTqXRkBmd2Qz+JIAEwxyM2iMR6Sp4e
+  zvGI9sijbsdLaq8UpQg/piEID69kz5+dKG28EIw++HmBHkowGrICLbNIO7DN+w==
+  -----END CERTIFICATE-----
+
+::
+
+  core@core-01 ~ $ sudo vim /etc/ssl/certs/proxy.docker.dev.pem && sudo /sbin/update-ca-certificates && sudo systemctl daemon-reload && sudo systemctl restart docker
+
+  core@core-01 ~ $ sudo systemctl daemon-reload && sudo systemctl restart docker
+
+
+With all this running, on core-01::
+
+  core@core-01 ~ $ https_proxy=http://172.17.8.100:3128 http_proxy=http://172.17.8.100:3128 docker -D pull busybox
+  core@core-01 ~ $ https_proxy=http://172.17.8.100:3128 http_proxy=http://172.17.8.100:3128 docker -D rmi busybox
+  core@core-01 ~ $ https_proxy=http://172.17.8.100:3128 http_proxy=http://172.17.8.100:3128 docker -D pull busybox
+
+
+Results in these access logs on cacehbox::
+
+==> /var/log/squid3/access.log <==
+1416595484.602    334 172.17.8.101 TAG_NONE/200 0 CONNECT registry-1.docker.io:443 - HIER_DIRECT/162.242.195.84 -
+1416595484.604    335 172.17.8.101 TAG_NONE/200 0 CONNECT registry-1.docker.io:443 - HIER_DIRECT/162.242.195.84 -
+1416595484.604    335 172.17.8.101 TAG_NONE/200 0 CONNECT registry-1.docker.io:443 - HIER_DIRECT/162.242.195.84 -
+1416595484.604    335 172.17.8.101 TAG_NONE/200 0 CONNECT registry-1.docker.io:443 - HIER_DIRECT/162.242.195.84 -
+1416595484.758    147 172.17.8.101 TCP_MISS/302 1753 GET https://registry-1.docker.io/v2/blob/library/busybox/tarsum.dev+sha256/1b755912c77197c6a43539f2a708ef89d5849b8ce02642cb702e47afaa8195c3 - HIER_DIRECT/162.242.195.84 text/html
+1416595484.771    159 172.17.8.101 TCP_MISS/302 1753 GET https://registry-1.docker.io/v2/blob/library/busybox/tarsum.dev+sha256/1b755912c77197c6a43539f2a708ef89d5849b8ce02642cb702e47afaa8195c3 - HIER_DIRECT/162.242.195.84 text/html
+1416595484.773    161 172.17.8.101 TCP_MISS/302 1753 GET https://registry-1.docker.io/v2/blob/library/busybox/tarsum.dev+sha256/b943e30d0fbb7aa86cb52c2e6c7adaed3d8a95e115ac26296527957b4c0116cb - HIER_DIRECT/162.242.195.84 text/html
+1416595484.794    183 172.17.8.101 TCP_MISS/302 1753 GET https://registry-1.docker.io/v2/blob/library/busybox/tarsum.dev+sha256/324d4cf44ee7daa46266c1df830c61a7df615c0632176a339e7310e34723d67a - HIER_DIRECT/162.242.195.84 text/html
+1416595484.866    106 172.17.8.101 TAG_NONE/200 0 CONNECT dseasb33srnrn.cloudfront.net:443 - HIER_DIRECT/54.239.158.28 -
+1416595484.869      0 172.17.8.101 TCP_MEM_HIT/200 3610 GET https://dseasb33srnrn.cloudfront.net/test/v2-1.3-rc/layers/tarsum.dev-sha256/1b/75/1b755912c77197c6a43539f2a708ef89d5849b8ce02642cb702e47afaa8195c3? - HIER_NONE/- binary/octet-stream
+1416595484.879    105 172.17.8.101 TAG_NONE/200 0 CONNECT dseasb33srnrn.cloudfront.net:443 - HIER_DIRECT/54.239.158.28 -
+1416595484.883      0 172.17.8.101 TCP_MEM_HIT/200 3610 GET https://dseasb33srnrn.cloudfront.net/test/v2-1.3-rc/layers/tarsum.dev-sha256/1b/75/1b755912c77197c6a43539f2a708ef89d5849b8ce02642cb702e47afaa8195c3? - HIER_NONE/- binary/octet-stream
+1416595484.884    108 172.17.8.101 TAG_NONE/200 0 CONNECT dseasb33srnrn.cloudfront.net:443 - HIER_DIRECT/54.239.158.28 -
+1416595484.914    118 172.17.8.101 TAG_NONE/200 0 CONNECT dseasb33srnrn.cloudfront.net:443 - HIER_DIRECT/54.239.158.28 -
+1416595484.918      0 172.17.8.101 TCP_MEM_HIT/200 2074 GET https://dseasb33srnrn.cloudfront.net/test/v2-1.3-rc/layers/tarsum.dev-sha256/32/4d/324d4cf44ee7daa46266c1df830c61a7df615c0632176a339e7310e34723d67a? - HIER_NONE/- binary/octet-stream
+1416595505.412  20525 172.17.8.101 TCP_HIT/200 2646557 GET https://dseasb33srnrn.cloudfront.net/test/v2-1.3-rc/layers/tarsum.dev-sha256/b9/43/b943e30d0fbb7aa86cb52c2e6c7adaed3d8a95e115ac26296527957b4c0116cb? - HIER_NONE/- binary/octet-stream
+1416595515.924      0 172.17.8.101 TCP_MEM_HIT/200 2355 GET https://dvjy3tqbc323p.cloudfront.net/trust/official.json - HIER_NONE/- application/json
+1416595516.244    309 172.17.8.101 TAG_NONE/200 0 CONNECT registry-1.docker.io:443 - HIER_DIRECT/162.242.195.84 -
+1416595516.363    115 172.17.8.101 TCP_MISS/200 7462 GET https://registry-1.docker.io/v2/manifest/library/busybox/latest - HIER_DIRECT/162.242.195.84 application/json
+1416595516.696    313 172.17.8.101 TAG_NONE/200 0 CONNECT registry-1.docker.io:443 - HIER_DIRECT/162.242.195.84 -
+1416595516.702    318 172.17.8.101 TAG_NONE/200 0 CONNECT registry-1.docker.io:443 - HIER_DIRECT/162.242.195.84 -
+1416595516.704    319 172.17.8.101 TAG_NONE/200 0 CONNECT registry-1.docker.io:443 - HIER_DIRECT/162.242.195.84 -
+1416595516.705    321 172.17.8.101 TAG_NONE/200 0 CONNECT registry-1.docker.io:443 - HIER_DIRECT/162.242.195.84 -
+1416595516.851    152 172.17.8.101 TCP_MISS/302 1753 GET https://registry-1.docker.io/v2/blob/library/busybox/tarsum.dev+sha256/1b755912c77197c6a43539f2a708ef89d5849b8ce02642cb702e47afaa8195c3 - HIER_DIRECT/162.242.195.84 text/html
+1416595516.851    143 172.17.8.101 TCP_MISS/302 1753 GET https://registry-1.docker.io/v2/blob/library/busybox/tarsum.dev+sha256/324d4cf44ee7daa46266c1df830c61a7df615c0632176a339e7310e34723d67a - HIER_DIRECT/162.242.195.84 text/html
+1416595516.856    148 172.17.8.101 TCP_MISS/302 1753 GET https://registry-1.docker.io/v2/blob/library/busybox/tarsum.dev+sha256/b943e30d0fbb7aa86cb52c2e6c7adaed3d8a95e115ac26296527957b4c0116cb - HIER_DIRECT/162.242.195.84 text/html
+1416595516.859    150 172.17.8.101 TCP_MISS/302 1753 GET https://registry-1.docker.io/v2/blob/library/busybox/tarsum.dev+sha256/1b755912c77197c6a43539f2a708ef89d5849b8ce02642cb702e47afaa8195c3 - HIER_DIRECT/162.242.195.84 text/html
+1416595532.146  15287 172.17.8.101 TAG_NONE/200 0 CONNECT dseasb33srnrn.cloudfront.net:443 - HIER_DIRECT/54.230.186.107 -
+1416595532.151  15298 172.17.8.101 TAG_NONE/200 0 CONNECT dseasb33srnrn.cloudfront.net:443 - HIER_DIRECT/54.230.186.107 -
+1416595532.151  15298 172.17.8.101 TAG_NONE/200 0 CONNECT dseasb33srnrn.cloudfront.net:443 - HIER_DIRECT/54.230.186.107 -
+1416595532.151  15291 172.17.8.101 TAG_NONE/200 0 CONNECT dseasb33srnrn.cloudfront.net:443 - HIER_DIRECT/54.230.186.107 -
+1416595532.158      0 172.17.8.101 TCP_MEM_HIT/200 2074 GET https://dseasb33srnrn.cloudfront.net/test/v2-1.3-rc/layers/tarsum.dev-sha256/32/4d/324d4cf44ee7daa46266c1df830c61a7df615c0632176a339e7310e34723d67a? - HIER_NONE/- binary/octet-stream
+1416595532.158      0 172.17.8.101 TCP_MEM_HIT/200 3610 GET https://dseasb33srnrn.cloudfront.net/test/v2-1.3-rc/layers/tarsum.dev-sha256/1b/75/1b755912c77197c6a43539f2a708ef89d5849b8ce02642cb702e47afaa8195c3? - HIER_NONE/- binary/octet-stream
+1416595532.161      1 172.17.8.101 TCP_MEM_HIT/200 3610 GET https://dseasb33srnrn.cloudfront.net/test/v2-1.3-rc/layers/tarsum.dev-sha256/1b/75/1b755912c77197c6a43539f2a708ef89d5849b8ce02642cb702e47afaa8195c3? - HIER_NONE/- binary/octet-stream
+1416595553.317  21167 172.17.8.101 TCP_HIT/200 2646557 GET https://dseasb33srnrn.cloudfront.net/test/v2-1.3-rc/layers/tarsum.dev-sha256/b9/43/b943e30d0fbb7aa86cb52c2e6c7adaed3d8a95e115ac26296527957b4c0116cb? - HIER_NONE/- binary/octet-stream
+
+
+
+As you can see, towards the end it appears to be getting TCP_MEM_HIT and TCP_HIT on the layers, but it does still seem to take non-instant time to fetch them.
+
+The storeid rewrite_db seems to be working but the caching options might not be aggressive enough or it might be too small to store or something like that, dunno mang.
+
